@@ -37,7 +37,7 @@ local cmds = {
 local mod = {}
 mod.Config = opts
 
-local base = script:FindFirstChild("guppyco") or ServerStorage:FindFirstChild("guppyco")
+local base = (script and script:FindFirstChild("guppyco")) or ServerStorage:FindFirstChild("guppyco")
 local on = false
 local link = nil
 local cmdlink = nil
