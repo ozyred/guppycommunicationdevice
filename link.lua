@@ -78,7 +78,6 @@ local fmt = load(ReplicatedStorage, "Modules.MDify.MDify")
 local names = load(ServerScriptService, "ServerModules.Introductions")
 local dict = load(ReplicatedStorage, "LanguageDictionary")
 local mix = load(ServerScriptService, "MHandler.GarbleSystem")
-local chatfilter = load(ServerScriptService, "ServerModules.ChatFilter")
 local downed = load(ServerScriptService, "ServerModules.DownedEffect")
 
 local function plain(str)
@@ -96,14 +95,6 @@ local function uncensor(on)
 		txt.Censor = txt.KeptCensor
 		txt.KeptCensor = nil
 	end
-end
-
-local function clean(plr, str)
-	if not chatfilter or type(chatfilter.Filter) ~= "function" then
-		return nil
-	end
-	local ok, res = pcall(chatfilter.Filter, plr, str)
-	return ok and type(res) == "string" and res or nil
 end
 
 local function remotes()
@@ -791,32 +782,21 @@ local function runcmd(loudguy, name, args)
 	end
 	local words = string.split(args, " ")
 	local style = cmds[name]
-	local function filtered(str)
-		local res = clean(loudguy, str)
-		if not res then
-			notice(loudguy, "Couldn't filter that message, try again.")
-		end
-		return res
-	end
 	if type(style) == "string" then
 		if args == "" then
 			return
 		end
-		local msg = filtered(args)
-		if not msg then
-			return
-		end
-		ce:FireAllClients("Message", { Message = msg, Caller = loudguy, StyleType = style })
+		ce:FireAllClients("Message", { Message = args, Caller = loudguy, StyleType = style })
 	elseif name == "yell" then
 		if args == "" then
 			return
 		end
-		local msg = filtered(args)
+		local msg = args
 		local char = loudguy.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		local dataobj = char and char:FindFirstChild("PlayerData")
 		local data = dataobj and dataobj.Value
-		if not msg or not root or not data then
+		if not root or not data then
 			return
 		end
 		local who = (data:FindFirstChild("CharacterName") and data.CharacterName.Value ~= "" and data.CharacterName.Value) or "???"
@@ -864,10 +844,6 @@ local function runcmd(loudguy, name, args)
 		if not word or msg == "" then
 			return
 		end
-		msg = filtered(msg)
-		if not msg then
-			return
-		end
 		for _, plr in resolve(loudguy, word) do
 			ce:FireClient(plr, "PMHolder", { Caller = plr, Message = msg })
 		end
@@ -876,10 +852,6 @@ local function runcmd(loudguy, name, args)
 		local keyword = words[2] and words[2]:upper()
 		local msg = table.concat(words, " ", 3)
 		if not word or not colors[keyword or ""] or msg == "" then
-			return
-		end
-		msg = filtered(msg)
-		if not msg then
 			return
 		end
 		local now = os.time()
@@ -896,10 +868,6 @@ local function runcmd(loudguy, name, args)
 		local kind = table.remove(words, 1)
 		local msg = table.concat(words, " ")
 		if not word or not kind or msg == "" then
-			return
-		end
-		msg = filtered(msg)
-		if not msg then
 			return
 		end
 		local key = kind:upper()
