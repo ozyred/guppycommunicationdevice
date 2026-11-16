@@ -32,6 +32,11 @@ local cmds = {
 	notif = true,
 	snotif = true,
 	schat = true,
+	yell = true,
+}
+
+local need = {
+	yell = 0,
 }
 
 local mod = {}
@@ -73,6 +78,33 @@ local fmt = load(ReplicatedStorage, "Modules.MDify.MDify")
 local names = load(ServerScriptService, "ServerModules.Introductions")
 local dict = load(ReplicatedStorage, "LanguageDictionary")
 local mix = load(ServerScriptService, "MHandler.GarbleSystem")
+local chatfilter = load(ServerScriptService, "ServerModules.ChatFilter")
+local downed = load(ServerScriptService, "ServerModules.DownedEffect")
+
+local function plain(str)
+	return str
+end
+
+local function uncensor(on)
+	if not txt then
+		return
+	end
+	if on then
+		txt.KeptCensor = txt.KeptCensor or txt.Censor
+		txt.Censor = plain
+	elseif txt.KeptCensor then
+		txt.Censor = txt.KeptCensor
+		txt.KeptCensor = nil
+	end
+end
+
+local function clean(plr, str)
+	if not chatfilter or type(chatfilter.Filter) ~= "function" then
+		return nil
+	end
+	local ok, res = pcall(chatfilter.Filter, plr, str)
+	return ok and type(res) == "string" and res or nil
+end
 
 local function remotes()
 	return ReplicatedStorage:FindFirstChild("Remotes")
@@ -759,15 +791,81 @@ local function runcmd(loudguy, name, args)
 	end
 	local words = string.split(args, " ")
 	local style = cmds[name]
+	local function filtered(str)
+		local res = clean(loudguy, str)
+		if not res then
+			notice(loudguy, "Couldn't filter that message, try again.")
+		end
+		return res
+	end
 	if type(style) == "string" then
 		if args == "" then
 			return
 		end
-		ce:FireAllClients("Message", { Message = args, Caller = loudguy, StyleType = style })
+		local msg = filtered(args)
+		if not msg then
+			return
+		end
+		ce:FireAllClients("Message", { Message = msg, Caller = loudguy, StyleType = style })
+	elseif name == "yell" then
+		if args == "" then
+			return
+		end
+		local msg = filtered(args)
+		local char = loudguy.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local dataobj = char and char:FindFirstChild("PlayerData")
+		local data = dataobj and dataobj.Value
+		if not msg or not root or not data then
+			return
+		end
+		local who = (data:FindFirstChild("CharacterName") and data.CharacterName.Value ~= "" and data.CharacterName.Value) or "???"
+		local side = data:FindFirstChild("Allegiance") and data.Allegiance.Value or ""
+		local down = char:GetAttribute("Downed") == true
+		if down and downed and type(downed.Apply) == "function" then
+			local ok, res = pcall(downed.Apply, msg)
+			if ok and type(res) == "string" then
+				msg = res
+			end
+		end
+		local far = down and 375 or 750
+		for _, other in Players:GetPlayers() do
+			local otherchar = other.Character
+			local otherroot = otherchar and otherchar:FindFirstChild("HumanoidRootPart")
+			local gap = otherroot and (otherroot.Position - root.Position).Magnitude
+			if gap and gap <= far and reach(loudguy, other) then
+				local otherobj = otherchar:FindFirstChild("PlayerData")
+				local otherdata = otherobj and otherobj.Value
+				local otherside = otherdata and otherdata:FindFirstChild("Allegiance") and otherdata.Allegiance.Value or ""
+				local friend = side ~= "" and side == otherside
+				local tier = gap <= far / 3 and "Close" or (gap <= far * 2 / 3 and "Nearby" or "Far")
+				local label
+				if friend then
+					if tier == "Close" then
+						label = "[ " .. who .. " ]"
+					elseif tier == "Nearby" then
+						label = "From somewhere nearby, " .. who .. " yells:"
+					else
+						label = "From far away, " .. who .. " yells:"
+					end
+				elseif tier == "Close" then
+					label = "Close to you; " .. who .. " yells:"
+				elseif tier == "Nearby" then
+					label = "From somewhere nearby, a yell:"
+				else
+					label = "From far away, a yell:"
+				end
+				ce:FireClient(other, "Yell", { Who = label, Message = msg, Tier = tier })
+			end
+		end
 	elseif name == "notif" then
 		local word = table.remove(words, 1)
 		local msg = table.concat(words, " ")
 		if not word or msg == "" then
+			return
+		end
+		msg = filtered(msg)
+		if not msg then
 			return
 		end
 		for _, plr in resolve(loudguy, word) do
@@ -778,6 +876,10 @@ local function runcmd(loudguy, name, args)
 		local keyword = words[2] and words[2]:upper()
 		local msg = table.concat(words, " ", 3)
 		if not word or not colors[keyword or ""] or msg == "" then
+			return
+		end
+		msg = filtered(msg)
+		if not msg then
 			return
 		end
 		local now = os.time()
@@ -794,6 +896,10 @@ local function runcmd(loudguy, name, args)
 		local kind = table.remove(words, 1)
 		local msg = table.concat(words, " ")
 		if not word or not kind or msg == "" then
+			return
+		end
+		msg = filtered(msg)
+		if not msg then
 			return
 		end
 		local key = kind:upper()
@@ -849,7 +955,7 @@ local function route(plr, msg)
 	end
 	local name, args = str:match("^(%w+)%s+(.+)$")
 	name = (name or str:match("^(%w+)") or ""):lower()
-	if cmds[name] ~= nil and rank(plr) >= opts.rank then
+	if cmds[name] ~= nil and rank(plr) >= (need[name] or opts.rank) then
 		task.spawn(runcmd, plr, name, args or "")
 		return true
 	end
@@ -981,6 +1087,7 @@ function mod.Start()
 		warn("link: ReplicatedStorage.Remotes is missing, nothing changed")
 		return false
 	end
+	uncensor(true)
 	link = folder:FindFirstChild(opts.linkname)
 	if not link then
 		link = Instance.new("RemoteEvent")
@@ -1023,6 +1130,7 @@ function mod.Stop()
 		return false, "already off"
 	end
 	on = false
+	uncensor(false)
 	for _, conn in conns do
 		conn:Disconnect()
 	end
