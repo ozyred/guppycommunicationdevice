@@ -33,10 +33,13 @@ local cmds = {
 	snotif = true,
 	schat = true,
 	yell = true,
+	help = true,
+	specialsm = true,
 }
 
 local need = {
 	yell = 0,
+	help = 0,
 }
 
 local mod = {}
@@ -775,6 +778,21 @@ local function hex(color)
 	return string.format("#%02X%02X%02X", math.floor(color.R * 255), math.floor(color.G * 255), math.floor(color.B * 255))
 end
 
+local idealities = {
+	Clarity = { Color = "rgb(117,86,207)", Jingle = "rbxassetid://112138253041605", Voices = { "Empathy", "Volition", "Authority", "Drama" } },
+	Acuity = { Color = "rgb(92,193,215)", Jingle = "rbxassetid://139331195716884", Voices = { "Logic", "Encyclopedia", "Conceptualization", "Suggestion" } },
+	Cunning = { Color = "rgb(227,183,52)", Jingle = "rbxassetid://136681960041876", Voices = { "Perception", "Savoir Faire", "Reaction Speed", "Composure" } },
+	Tenacity = { Color = "rgb(203,71,106)", Jingle = "rbxassetid://92176160113591", Voices = { "Physical Instrument", "Pain Threshold", "Shivers", "Half Light" } },
+}
+
+local voices = {}
+for ideality, data in idealities do
+	voices[string.lower(ideality)] = { Name = ideality, Ideality = ideality, Data = data }
+	for _, voice in data.Voices do
+		voices[string.lower((voice:gsub(" ", "")))] = { Name = voice, Ideality = ideality, Data = data }
+	end
+end
+
 local function runcmd(loudguy, name, args)
 	local ce = fx()
 	if not ce then
@@ -887,6 +905,54 @@ local function runcmd(loudguy, name, args)
 					yeet(nosyguy, head, rich)
 				end
 			end
+		end
+	elseif name == "help" then
+		local helplogs = ServerStorage:FindFirstChild("HelpLogs")
+		if not helplogs then
+			return
+		end
+		local entry = Instance.new("StringValue")
+		entry:SetAttribute("Caller", loudguy.Name)
+		entry.Value = args ~= "" and args or "... (The help request was left blank.)"
+		entry.Parent = helplogs
+	elseif name == "specialsm" then
+		local function reply(str)
+			ce:FireClient(loudguy, "StatsMessage", { Message = str, StyleType = "Makoto", Time = 5 })
+		end
+		local list = resolve(loudguy, table.remove(words, 1))
+		if #list == 0 then
+			reply("No players found. Usage: specialsm player voice message")
+			return
+		end
+		local voice = words[2] and voices[string.lower(words[1] .. words[2])]
+		local used = 2
+		if not voice then
+			voice = words[1] and voices[string.lower(words[1])]
+			used = 1
+		end
+		if not voice then
+			reply("Unknown voice. Use an Ideality or one of its voices, e.g. specialsm player shivers message")
+			return
+		end
+		local msg = table.concat(words, " ", used + 1)
+		if msg == "" then
+			reply("No message. Usage: specialsm player voice message")
+			return
+		end
+		local now = os.time()
+		local key = "LastSpecialSM_" .. voice.Ideality
+		for _, plr in list do
+			local jingle = nil
+			if now - (plr:GetAttribute(key) or 0) > 30 then
+				plr:SetAttribute(key, now)
+				jingle = voice.Data.Jingle
+			end
+			ce:FireClient(plr, "Message", {
+				Message = '<font color="' .. voice.Data.Color .. '"><b>' .. string.upper(voice.Name) .. "</b></font> — " .. msg,
+				Caller = loudguy,
+				StyleType = "",
+				Sound = jingle,
+			})
 		end
 	end
 	local logs = ServerStorage:FindFirstChild("CommandLogs")
